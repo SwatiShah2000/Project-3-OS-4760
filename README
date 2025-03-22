@@ -1,0 +1,55 @@
+Project Name: Operating System Simulator (Project 3 for CS4760)
+Author: Swastika Sah
+Date: March 2025
+
+Description:
+This project simulates process scheduling and interprocess communication between a parent process (oss) and child processes (worker). The parent process maintains a simulated system clock, launches worker processes, and uses message queues to coordinate them.
+
+Key functionalities include:
+
+Simulated clock synchronization.
+Process control table to manage up to 20 processes.
+Message queue to pass control between oss and child processes.
+Logging of process activity in real-time to a file.
+Compilation Instructions:
+To compile the project, use the Makefile provided.
+In the terminal, navigate to the project directory and run:
+make
+This will generate two executables:
+
+oss
+worker
+
+Running the Project:
+To run the program, use the following command:
+./oss -n <maxProcesses> -s <maxConcurrent> -t <maxTime> -i <interval> -f <logfile>
+Where:
+
+-n <maxProcesses>: Maximum number of processes to be launched by oss (e.g., 5).
+-s <maxConcurrent>: Maximum number of concurrent child processes allowed (e.g., 3).
+-t <maxTime>: Upper bound for child termination time in seconds (e.g., 7).
+-i <interval>: Interval (in milliseconds) to wait before launching a new process (e.g., 100).
+-f <logfile>: Path to the output log file where oss will log its messages.
+Example Command:
+./oss -n 5 -s 3 -t 7 -i 100 -f logfile.txt
+
+Expected Output:
+The oss process will launch child processes (worker) with random time-to-live durations.
+Processes communicate via message queues, and the parent (oss) alternates between sending and receiving messages.
+System clock updates and process table snapshots will be logged to both the terminal and the specified log file.
+
+
+Cleaning the Project:
+To remove compiled executables (oss and worker), run:make clean
+
+Submission Instructions:
+Before submitting the project, run:make
+
+This will clean the project directory by removing the executables and ensuring that only source code files are submitted.
+
+Final submission should include:
+
+oss.c and worker.c (source files)
+Makefile
+This README
+.git directory showing version control logs
