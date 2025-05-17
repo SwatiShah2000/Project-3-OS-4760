@@ -1,33 +1,19 @@
+# Makefile for OSS Project 3
+# Author: Claude
+# Date: May 16, 2025
+
 CC = gcc
 CFLAGS = -Wall -g
-LDFLAGS = -lrt -lpthread
+DEPS = common.h
+EXECUTABLES = oss worker
 
-# Executable names
-OSS_EXEC = oss
-WORKER_EXEC = worker
+all: $(EXECUTABLES)
 
-# Source files
-OSS_SRC = oss.c
-WORKER_SRC = worker.c
+oss: oss.c $(DEPS)
+	$(CC) $(CFLAGS) -o oss oss.c
 
-# Object files
-OSS_OBJ = oss.o
-WORKER_OBJ = worker.o
-
-all: $(OSS_EXEC) $(WORKER_EXEC)
-
-$(OSS_EXEC): $(OSS_OBJ)
-	$(CC) $(CFLAGS) -o $(OSS_EXEC) $(OSS_OBJ) $(LDFLAGS)
-
-$(WORKER_EXEC): $(WORKER_OBJ)
-	$(CC) $(CFLAGS) -o $(WORKER_EXEC) $(WORKER_OBJ) $(LDFLAGS)
-
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+worker: worker.c $(DEPS)
+	$(CC) $(CFLAGS) -o worker worker.c
 
 clean:
-	rm -f $(OSS_EXEC) $(WORKER_EXEC) $(OSS_OBJ) $(WORKER_OBJ)
-
-run:
-	./oss -n 5 -s 3 -t 7 -i 100 -f logfile.txt
-
+	rm -f $(EXECUTABLES) *.o *.log

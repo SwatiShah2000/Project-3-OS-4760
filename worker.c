@@ -1,99 +1,156 @@
-/* worker.c */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
 #include <sys/shm.h>
-#include <mqueue.h>
+#include <sys/msg.h>
 #include <time.h>
-#include <fcntl.h>
+#include <string.h>
+#include <errno.h>
+#include <signal.h>
 
-#define NANOSECONDS_IN_SECOND 1000000000
-#define MQ_NAME "/oss_mq"
+#define SHM_KEY 'S'
+#define MSG_KEY 'M'
+#define NANO_PER_SEC 1000000000
 
-// Structure for the simulated clock
+// Define shared memory structure for the system clock
 typedef struct {
-    int seconds;
-    int nanoseconds;
-} SysClock;
+    unsigned int seconds;
+    unsigned int nanoseconds;
+} SystemClock;
 
-long long toNanoseconds(int sec, int nano) {
-    return (long long)sec * NANOSECONDS_IN_SECOND + nano;
-}
+// Define message structure for message queue
+typedef struct {
+    long mtype;     // Message type
+    int status;     // 1 for running, 0 for terminating
+} Message;
 
 int main(int argc, char *argv[]) {
-    if (argc != 4) {
-        fprintf(stderr, "Usage: %s <sec> <nano> <shm_key>\n", argv[0]);
-        exit(1);
+    // Check command line arguments
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s seconds nanoseconds\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
 
-    int waitSeconds = atoi(argv[1]);
-    int waitNanoseconds = atoi(argv[2]);
-    key_t shm_key = atoi(argv[3]);
+    // Parse command line arguments
+    int terminateSeconds = atoi(argv[1]);
+    int terminateNano = atoi(argv[2]);
 
-    printf("WORKER PID: %d - Attempting to attach to shared memory ID: %d\n", getpid(), shm_key);
-    int retries = 5;
-    int shm_id;
-    while ((shm_id = shmget(shm_key, sizeof(SysClock), IPC_CREAT | 0666)) == -1 && retries > 0) {
-        perror("Worker failed to attach to shared memory, retrying...");
-        sleep(1);  // Give OSS time to create the memory
-        retries--;
-    }
-    if (shm_id == -1) {
-        perror("Worker failed to attach to shared memory after retries");
-        exit(1);
+    if (terminateSeconds < 0 || terminateNano < 0 || terminateNano >= NANO_PER_SEC) {
+        fprintf(stderr, "Invalid time values. Seconds must be >= 0, nanoseconds must be >= 0 and < %d\n", NANO_PER_SEC);
+        exit(EXIT_FAILURE);
     }
 
-    SysClock* clock_ptr = (SysClock*)shmat(shm_id, NULL, 0);
-    if (clock_ptr == (void*)-1) {
-        perror("shmat failed");
-        exit(1);
+    // Set up signal handlers
+    signal(SIGINT, SIG_IGN);  // Ignore SIGINT, let parent handle it
+
+    // Get process IDs
+    pid_t myPid = getpid();
+    pid_t parentPid = getppid();
+
+    // Attach to shared memory for system clock
+    key_t key = ftok(".", SHM_KEY);
+    if (key == -1) {
+        perror("ftok for shared memory");
+        exit(EXIT_FAILURE);
     }
 
-    mqd_t mq = mq_open(MQ_NAME, O_RDWR);
-    if (mq == (mqd_t)-1) {
-        perror("Failed to open message queue");
-        shmdt(clock_ptr);
-        exit(1);
+    int shmid = shmget(key, sizeof(SystemClock), 0666);
+    if (shmid == -1) {
+        perror("shmget");
+        exit(EXIT_FAILURE);
     }
 
-    long long targetTime = toNanoseconds(clock_ptr->seconds, clock_ptr->nanoseconds) + toNanoseconds(waitSeconds, waitNanoseconds);
-    printf("WORKER PID: %d PPID: %d StartTimeS: %d StartTimeNano: %d TermTimeS: %d TermTimeNano: %d\n", getpid(), getppid(), clock_ptr->seconds, clock_ptr->nanoseconds, waitSeconds, waitNanoseconds);
+    SystemClock *systemClock = (SystemClock *)shmat(shmid, NULL, 0);
+    if (systemClock == (void *)-1) {
+        perror("shmat");
+        exit(EXIT_FAILURE);
+    }
 
+    // Access message queue
+    key_t msgKey = ftok(".", MSG_KEY);
+    if (msgKey == -1) {
+        perror("ftok for message queue");
+        shmdt(systemClock);
+        exit(EXIT_FAILURE);
+    }
+
+    int msgqid = msgget(msgKey, 0666);
+    if (msgqid == -1) {
+        perror("msgget");
+        shmdt(systemClock);
+        exit(EXIT_FAILURE);
+    }
+
+    // Calculate absolute termination time
+    unsigned int terminationSeconds = systemClock->seconds + terminateSeconds;
+    unsigned int terminationNano = systemClock->nanoseconds + terminateNano;
+
+    // Adjust if nanoseconds overflow
+    if (terminationNano >= NANO_PER_SEC) {
+        terminationSeconds += terminationNano / NANO_PER_SEC;
+        terminationNano %= NANO_PER_SEC;
+    }
+
+    // Output initial status
+    printf("WORKER PID:%d PPID:%d SysClockS: %d SysclockNano: %d TermTimeS: %d TermTimeNano: %d\n",
+           myPid, parentPid, systemClock->seconds, systemClock->nanoseconds, 
+           terminationSeconds, terminationNano);
+    printf("--Just Starting\n");
+
+    // Main loop
     int iterations = 0;
-    while (1) {
-        int message;
-        if (mq_receive(mq, (char*)&message, sizeof(int), NULL) == -1) {
-            perror("Worker: Message queue receive failed");
-            exit(1);
-        }
+    int shouldTerminate = 0;
 
-
-        if (message == 0) {
-            printf("WORKER PID: %d Terminating as per OSS request\n", getpid());
+    do {
+        // Wait for message from oss
+        Message msg;
+        if (msgrcv(msgqid, &msg, sizeof(msg.status), myPid, 0) == -1) {
+            if (errno == EINTR) {
+                // Interrupted by signal, try again
+                continue;
+            }
+            perror("msgrcv");
             break;
         }
 
-        long long currentTime = toNanoseconds(clock_ptr->seconds, clock_ptr->nanoseconds);
-
-        if (currentTime >= targetTime) {
-            printf("WORKER PID: %d SysClockS: %d SysClockNano: %d - Reached termination time\n", getpid(), clock_ptr->seconds, clock_ptr->nanoseconds);
-            int message = 0;
-            mq_receive(mq, (char*)&message, sizeof(int), NULL);
-            if (message == 0) {
-                printf("WORKER PID: %d Terminating as per OSS request\n", getpid());
-                break;
-            }
+        // Check if we should terminate based on clock time
+        if (systemClock->seconds > terminationSeconds ||
+            (systemClock->seconds == terminationSeconds &&
+             systemClock->nanoseconds >= terminationNano)) {
+            shouldTerminate = 1;
         }
 
+        // Increment iterations
         iterations++;
-        printf("WORKER PID: %d Iteration: %d SysClockS: %d SysClockNano: %d\n", getpid(), iterations, clock_ptr->seconds, clock_ptr->nanoseconds);
-        // Send message only if still running
-        message = 1;
-        mq_send(mq, (char*)&message, sizeof(int), 0);
-    }
 
-    mq_close(mq);
-    shmdt(clock_ptr);
-    return 0;
+        // Print status
+        printf("WORKER PID:%d PPID:%d SysClockS: %d SysclockNano: %d TermTimeS: %d TermTimeNano: %d\n",
+               myPid, parentPid, systemClock->seconds, systemClock->nanoseconds,
+               terminationSeconds, terminationNano);
+
+        if (shouldTerminate) {
+            printf("--Terminating after sending message back to oss after %d iterations.\n", iterations);
+        } else {
+            printf("--%d iteration%s have passed since starting\n",
+                   iterations, (iterations == 1) ? "" : "s");
+        }
+
+        // Send message back to oss
+        Message response;
+        response.mtype = parentPid;
+        response.status = shouldTerminate ? 0 : 1;  // 0 = terminate, 1 = continue
+
+        if (msgsnd(msgqid, &response, sizeof(response.status), 0) == -1) {
+            perror("msgsnd");
+            break;
+        }
+
+    } while (!shouldTerminate);
+
+    // Detach from shared memory
+    shmdt(systemClock);
+
+    return EXIT_SUCCESS;
 }
-

@@ -1,0 +1,111 @@
+Summary of Improvements to Project 3
+This document outlines the significant improvements and fixes made to my previous submission for Project 3.
+Fundamental Architecture Changes
+
+Message Queue Implementation
+
+Replaced POSIX message queues (mq_open, mq_send, mq_receive) with System V message queues (msgget, msgsnd, msgrcv)
+This addressed compatibility issues with the opsys environment and simplified message passing between processes
+Eliminated the message queue creation errors that were occurring in the previous implementation
+
+
+Shared Memory Management
+
+Fixed race conditions in shared memory attachment and access
+Implemented cleaner shared memory allocation and management
+Ensured proper detachment and cleanup of shared memory in all termination scenarios
+
+
+Process Synchronization
+
+Completely rewrote the round-robin messaging system to properly alternate between processes
+Fixed the critical issue where workers were not correctly waiting for messages from oss
+Implemented proper message response handling between oss and worker processes
+
+
+
+Code Structure and Organization
+
+Added Common Header File
+
+Created common.h to share definitions between oss.c and worker.c
+Standardized constants (MAX_PROCESSES, NANO_PER_SEC, SHM_KEY, MSG_KEY)
+Ensured consistent structure definitions across files
+
+
+Process Table Management
+
+Completely redesigned process table handling and entry management
+Fixed incorrect process table updates that caused process table corruption
+Added proper tracking of process termination and process slot reuse
+
+
+Worker Process Logic
+
+Rewrote worker process main loop to properly receive, process, and respond to messages
+Fixed termination condition checking to accurately determine when a process should exit
+Implemented proper clock checking and time comparison
+
+
+
+Critical Bug Fixes
+
+Fixed Message Passing Protocol
+
+Corrected the message structure and protocol between oss and worker
+Fixed deadlock scenarios where oss was waiting for worker messages that were never sent
+Ensured proper sequencing of message passing to maintain synchronization
+
+
+Memory Management and Cleanup
+
+Implemented comprehensive cleanup functions to properly release all resources
+Added signal handlers for SIGINT, SIGALRM, and SIGTERM to ensure orderly shutdown
+Fixed memory leaks in both oss and worker processes
+
+
+Process Coordination
+
+Fixed incorrect process tracking that led to process table inconsistencies
+Implemented proper termination detection and handling
+Corrected the logic for determining which worker to communicate with next
+
+
+
+Improved Error Handling and Robustness
+
+Enhanced Error Detection and Recovery
+
+Added comprehensive error checking for all system calls
+Implemented error recovery mechanisms for failed IPC operations
+Added proper handling for interrupted system calls (EINTR)
+
+
+Signal Handling
+
+Improved signal handlers to ensure clean termination
+Added proper handling of SIGINT to properly clean up resources
+Fixed timeout handling for the 60-second real-time limit
+
+
+Logging and Monitoring
+
+Enhanced logging output to provide more informative messages
+Added detailed process table display at appropriate intervals
+Improved final statistics reporting
+
+
+
+Performance Enhancements
+
+Clock Management
+
+Fixed the clock increment calculation based on active children
+Corrected the algorithm for determining message sending intervals
+
+
+Process Management
+
+Optimized the algorithm for finding the next available process slot
+Improved process creation and monitoring logic
+Enhanced process termination detection and handling
